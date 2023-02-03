@@ -24,9 +24,11 @@ import qualified Data.ByteString.Lazy.Char8 as L8
 satisfy :: Word8 -> L.ByteString -> Property
 satisfy w s = parseBS (P.satisfy (<=w)) (L.cons w s) === Just w
 
-satisfyWith :: Char -> L.ByteString -> Property
-satisfyWith c s = parseBS (P.satisfyWith (chr . fromIntegral) (<=c))
-                         (L.cons (fromIntegral (ord c)) s) === Just (chr $ mod (ord c) 256)
+satisfyWith :: Word8 -> L.ByteString -> Property
+satisfyWith w s = parseBS (P.satisfyWith (chr . fromIntegral) (<=c))
+                         (L.cons (fromIntegral (ord c)) s) === Just c
+  where
+    c = chr (fromIntegral w)
 
 word8 :: Word8 -> L.ByteString -> Property
 word8 w s = parseBS (P.word8 w) (L.cons w s) === Just w
@@ -117,6 +119,18 @@ takeWhile1 w s =
          PL.Done t' h' -> t === t' .&&. toStrictBS h === h'
          _             -> property False
 
+takeWhileIncluding :: Word8 -> L.ByteString -> Property
+takeWhileIncluding w s =
+    let s'    = L.cons w $ L.snoc s (w+1)
+        (h_,t_) = L.span (<=w) s'
+        (h,t) =
+          case L.uncons t_ of
+            Nothing -> (h_, t_)
+            Just (n, nt) -> (h_ `L.snoc` n, nt)
+    in w < 255 ==> case PL.parse (P.takeWhileIncluding (<=w)) s' of
+         PL.Done t' h' -> t === t' .&&. toStrictBS h === h'
+         _             -> property False
+
 takeTill :: Word8 -> L.ByteString -> Property
 takeTill w s =
     let (h,t) = L.break (==w) s
@@ -126,6 +140,19 @@ takeTill w s =
 
 takeWhile1_empty :: Property
 takeWhile1_empty = parseBS (P.takeWhile1 undefined) L.empty === Nothing
+
+getChunk :: L.ByteString -> Property
+getChunk s =
+  maybe (property False) (=== L.toChunks s) $
+    parseBS getChunks s
+  where getChunks = go []
+        go res = do
+          mchunk <- P.getChunk
+          case mchunk of
+            Nothing -> return (reverse res)
+            Just chunk -> do
+              _ <- P.take (B.length chunk)
+              go (chunk:res)
 
 endOfInput :: L.ByteString -> Property
 endOfInput s = parseBS P.endOfInput s === if L.null s
@@ -153,31 +180,33 @@ nonmembers :: [Word8] -> [Word8] -> Property
 nonmembers s s' = property . not . any (`S.memberWord8` set) $ filter (not . (`elem` s)) s'
     where set = S.fromList s
 
-tests :: IO ()
-tests = do
-  testProperty "anyWord8" anyWord8
-  testProperty "endOfInput" endOfInput
-  testProperty "endOfLine" endOfLine
-  testProperty "notWord8" notWord8
-  testProperty "peekWord8" peekWord8
-  testProperty "peekWord8'" peekWord8'
-  testProperty "satisfy" satisfy
-  testProperty "satisfyWith" satisfyWith
-  testProperty "scan" scan
-  testProperty "skip" skip
-  testProperty "skipWhile" skipWhile
-  testProperty "string" string
-  testProperty "stringCI" stringCI
-  testProperty "strings" strings
-  testProperty "take" take
-  testProperty "takeByteString" takeByteString
-  testProperty "takeCount" takeCount
-  testProperty "takeLazyByteString" takeLazyByteString
-  testProperty "takeTill" takeTill
-  testProperty "takeWhile" takeWhile
-  testProperty "takeWhile1" takeWhile1
-  testProperty "takeWhile1_empty" takeWhile1_empty
-  testProperty "word8" word8
-  testProperty "members" members
-  testProperty "nonmembers" nonmembers
-
+tests :: [TestTree]
+tests = [
+      testProperty "anyWord8" anyWord8
+    , testProperty "endOfInput" endOfInput
+    , testProperty "endOfLine" endOfLine
+    , testProperty "notWord8" notWord8
+    , testProperty "peekWord8" peekWord8
+    , testProperty "peekWord8'" peekWord8'
+    , testProperty "satisfy" satisfy
+    , testProperty "satisfyWith" satisfyWith
+    , testProperty "scan" scan
+    , testProperty "skip" skip
+    , testProperty "skipWhile" skipWhile
+    , testProperty "string" string
+    , testProperty "stringCI" stringCI
+    , testProperty "strings" strings
+    , testProperty "take" take
+    , testProperty "takeByteString" takeByteString
+    , testProperty "takeCount" takeCount
+    , testProperty "takeLazyByteString" takeLazyByteString
+    , testProperty "takeTill" takeTill
+    , testProperty "takeWhile" takeWhile
+    , testProperty "takeWhile1" takeWhile1
+    , testProperty "takeWhile1_empty" takeWhile1_empty
+    , testProperty "takeWhileIncluding" takeWhileIncluding
+    , testProperty "getChunk" getChunk
+    , testProperty "word8" word8
+    , testProperty "members" members
+    , testProperty "nonmembers" nonmembers
+  ]
